@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"log"
 )
 
 // POST /reservations
@@ -31,6 +32,7 @@ func CreateReservationHandler(w http.ResponseWriter, r *http.Request) {
 func GetReservationsHandler(w http.ResponseWriter, r *http.Request) {
 	reservations, err := GetReservations()
 	if err != nil {
+		log.Println("[E] Database error:", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}

@@ -27,23 +27,25 @@ func connectToCassandra() {
 func GetReservations() ([]Reservation, error) {
 	var reservations []Reservation
 
-	query := `SELECT id, event_id, user_id, user_name, res_timestamp FROM reservations`
+	query := `SELECT id, event_id, event_name, user_id, user_name, res_timestamp FROM reservations`
 
 	iter := session.Query(query).Iter()
 
-	var id, eventID, userID, userName string
+	var id, eventID, eventName, userID, userName string
 	var rawTime time.Time
 
-	for iter.Scan(id, eventID, userID, userName, rawTime) {
+	for iter.Scan(&id, &eventID, &eventName, &userID, &userName, &rawTime) {
 		reservations = append(reservations, Reservation{
 			ID:        id,
 			EventID:   eventID,
+			EventName: eventName,
 			UserID:    userID,
 			UserName:  userName,
 			Timestamp: rawTime,
 		})
 	}
 	if err := iter.Close(); err != nil {
+		log.Println("[E] Error closing iterator:", err)
 		return nil, err
 	}
 
