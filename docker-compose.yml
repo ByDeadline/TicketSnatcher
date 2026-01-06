@@ -17,6 +17,34 @@ services:
       timeout: 10s
       retries: 5
 
+  schema-loader:
+      image: cassandra:latest
+      networks:
+        - cassandra-net
+      depends_on:
+        cassandra:
+          condition: service_healthy
+      volumes:
+        - ./Cassandra/schema.cql:/schema.cql
+      entrypoint: ["/bin/bash", "-c", "echo 'Waiting for cassandra'; sleep 30; cqlsh cassandra -f /schema.cql; echo 'Schema loaded'"]
+
+  app:
+      build:
+        context: .
+        dockerfile: Dockerfile
+      container_name: ticketsnatcher-app
+      ports:
+        - "1234:1234"
+      environment:
+        - CASSANDRA_HOST=cassandra
+      depends_on:
+        schema-loader:
+          condition: service_completed_successfully
+      networks:
+        - cassandra-net
+
+volumes:
+  cassandra_data:  
 networks:
   cassandra-net:
     driver: bridge

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/gocql/gocql"
@@ -11,17 +12,53 @@ import (
 var session *gocql.Session
 
 func connectToCassandra() {
-	cluster := gocql.NewCluster("127.0.0.1")
+	cassandraHost := os.Getenv("CASSANDRA_HOST")
+	if cassandraHost == "" {
+		cassandraHost = "127.0.0.1"
+	}
+
+	cluster := gocql.NewCluster(cassandraHost)
 	cluster.Port = 9042
 	cluster.Keyspace = "ticketsnatcher"
-	cluster.Consistency = gocql.Quorum
+	cluster.Consistency = gocql.Quorum 
 
 	var err error
-	session, err = cluster.CreateSession()
-	if err != nil {
-		log.Fatal("Failed to connect to Cassandra:", err)
-	}
-	fmt.Println("Connected to Cassandra")
+    for i := 0; i < 10; i++ {
+        session, err = cluster.CreateSession()
+        if err == nil {
+            fmt.Println("Connected to Cassandra at", cassandraHost)
+            return
+        }
+        fmt.Println("Waiting for Cassandra...", err)
+        time.Sleep(2 * time.Second)
+    }
+	log.Fatal("Failed to connect to Cassandra:", err)
+}
+
+
+func AttemptBooking(req CreateRequest) (string, error) {
+    queryUpdate := `UPDATE seats SET status = 'SOLD', user_id = ?, last_update = toTimestamp(now()) 
+                    WHERE event_id = ? AND seat_number = ?`
+    
+    if err := session.Query(queryUpdate, req.UserID, req.EventID, req.SeatNumber).Exec(); err != nil {
+        return "ERROR", err
+    }
+
+    // Symulacja laga sieciowego
+    time.Sleep(100 * time.Millisecond) 
+
+    var winnerID string
+    queryCheck := `SELECT user_id FROM seats WHERE event_id = ? AND seat_number = ?`
+    
+    if err := session.Query(queryCheck, req.EventID, req.SeatNumber).Scan(&winnerID); err != nil {
+        return "ERROR", err
+    }
+
+    if winnerID == req.UserID {
+        return "SUCCESS", nil
+    } else {
+        return "CONFLICT", fmt.Errorf("seat taken by %s", winnerID)
+    }
 }
 
 func GetReservations() ([]Reservation, error) {
@@ -71,3 +108,4 @@ func CreateReservation(req CreateRequest) (*Reservation, error) {
 	}
 	return &reservation, nil
 }
+

@@ -22,5 +22,5 @@ func main() {
 	r.Get("/", HealthCheckHandler)
 
 	log.Println("Server running on 127.0.0.1:1234...")
-	log.Fatal(http.ListenAndServe("127.0.0.1:1234", r))
+	log.Fatal(http.ListenAndServe("0.0.0.0:1234", r))
 }
