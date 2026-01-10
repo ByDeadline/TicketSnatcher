@@ -36,6 +36,16 @@ func connectToCassandra() {
 }
 
 func AttemptBooking(req CreateRequest) (*Reservation, error) {
+	var currentStatus string
+
+	queryCheckStatus := `SELECT status FROM seats WHERE event_id = ? AND seat_number = ?`
+	if err := session.Query(queryCheckStatus, req.EventID, req.SeatNumber).Scan(&currentStatus); err == nil {
+		if currentStatus == "SOLD" {
+			return nil, fmt.Errorf("conflict: seat is already permanently SOLD")
+		}
+	}
+
+	//Last write wins
 	queryUpdate := `UPDATE seats SET status = 'SOLD', user_id = ?, last_update = toTimestamp(now()) 
                     WHERE event_id = ? AND seat_number = ?`
 
@@ -43,13 +53,14 @@ func AttemptBooking(req CreateRequest) (*Reservation, error) {
 		return nil, err
 	}
 
+	//symulacja laga
 	time.Sleep(200 * time.Millisecond)
 
 	var winnerID string
 	var status string
-	queryCheck := `SELECT user_id, status FROM seats WHERE event_id = ? AND seat_number = ?`
+	queryVerify := `SELECT user_id, status FROM seats WHERE event_id = ? AND seat_number = ?`
 
-	if err := session.Query(queryCheck, req.EventID, req.SeatNumber).Scan(&winnerID, &status); err != nil {
+	if err := session.Query(queryVerify, req.EventID, req.SeatNumber).Scan(&winnerID, &status); err != nil {
 		return nil, err
 	}
 
