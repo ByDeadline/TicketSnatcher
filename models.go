@@ -23,8 +23,13 @@ type Reservation struct {
 }
 
 type CreateRequest struct {
-    EventID    string `json:"event_id"`
-    SeatNumber int    `json:"seat_number"`
-    UserID     string `json:"user_id"`
-    UserName   string `json:"user_name"`
+	EventID    string `json:"event_id"`
+	SeatNumber int    `json:"seat_number"`
+	UserID     string `json:"user_id"`
+	UserName   string `json:"user_name"`
+}
+
+type ErrorResponse struct {
+	Error  string `json:"error"`
+	Detail string `json:"detail,omitempty"`
 }

@@ -3,10 +3,9 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"log"
+	"strings"
 )
 
-// POST /reservations
 func CreateReservationHandler(w http.ResponseWriter, r *http.Request) {
 	var req CreateRequest
 
@@ -15,34 +14,38 @@ func CreateReservationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Call DB function
-	res, err := CreateReservation(req)
+	res, err := AttemptBooking(req)
 	if err != nil {
+		//walka o miejsce
+		if strings.Contains(err.Error(), "conflict") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict) //409
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":  "Seat already taken",
+				"detail": err.Error(),
+			})
+			return
+		}
 		http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Send success response (201 Created)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(res)
 }
 
-// GET /reservations
 func GetReservationsHandler(w http.ResponseWriter, r *http.Request) {
 	reservations, err := GetReservations()
 	if err != nil {
-		log.Println("[E] Database error:", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
-	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(reservations)
 }
 
-// GET /
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
