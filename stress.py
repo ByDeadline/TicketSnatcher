@@ -4,6 +4,7 @@ import time
 import uuid
 import sys
 import random
+import signal
 from collections import Counter
 from dataclasses import dataclass
 
@@ -11,11 +12,7 @@ from dataclasses import dataclass
 BASE_URL = "http://localhost:1234"
 RESERVATIONS_URL = f"{BASE_URL}/reservations"
 EVENT_ID = "1"
-
-# Parametry testów
-INTEGRITY_THREADS = 1000   # Ilu walczy o jedno miejsce
-LOAD_COUNT = 5000          # Ile unikalnych biletów próbujemy sprzedać w teście obciążenia
-MIXED_DURATION = 15       # Ile sekund ma trwać test mieszany
+SECTION_ID = "A"  # Nowe pole wymagane przez backend
 
 @dataclass
 class Result:
@@ -24,141 +21,184 @@ class Result:
     duration: float
     error: str = ""
 
-def make_reservation(seat_num):
-    """Próba rezerwacji konkretnego miejsca"""
+# --- GENERATORY ŻĄDAŃ ---
+
+def make_reservation(seat_nums):
+    """
+    Próba rezerwacji listy miejsc (ATOMOWA REZERWACJA).
+    seat_nums: lista intów, np. [101, 102]
+    """
     start = time.time()
     payload = {
         "event_id": EVENT_ID,
-        "seat_number": seat_num,
+        "section_id": SECTION_ID,
+        "seat_numbers": seat_nums,  # Backend oczekuje tablicy!
         "user_id": f"user_{uuid.uuid4().hex[:6]}",
         "user_name": "StressBot"
     }
     try:
-        resp = requests.post(RESERVATIONS_URL, json=payload, timeout=5)
+        resp = requests.post(RESERVATIONS_URL, json=payload, timeout=2) # Krótki timeout dla testu chaosu
         return Result("WRITE", resp.status_code, time.time() - start)
     except Exception as e:
         return Result("WRITE", 0, time.time() - start, str(e))
 
 def read_data():
-    """Symulacja odczytu (użytkownik sprawdza dostępność)"""
+    """Odczyt danych (GET)"""
     start = time.time()
     try:
-        resp = requests.get(RESERVATIONS_URL, timeout=5)
+        resp = requests.get(RESERVATIONS_URL, timeout=2)
         return Result("READ", resp.status_code, time.time() - start)
     except Exception as e:
         return Result("READ", 0, time.time() - start, str(e))
 
-def print_header(title):
-    print(f"\n{'='*60}")
-    print(f" {title}")
-    print(f"{'='*60}")
+# --- SCENARIUSZE TESTOWE ---
 
-# --- FAZA 1: INTEGRALNOŚĆ ---
 def test_integrity():
-    print_header("FAZA 1: TEST INTEGRALNOŚCI (RACE CONDITION)")
-    seat = random.randint(9000, 9999)
-    print(f"[OPIS] {INTEGRITY_THREADS} wątków próbuje kupić TE SAME miejsce nr {seat}.")
-    print("[CEL]  Tylko 1 sukces (201), reszta konflikty (409).")
+    """Scenariusz 1: Walka o te same miejsca (Spójność)"""
+    target_seats = [random.randint(100000, 999999)] # Walczymy o jedno miejsce (jako lista)
+    threads = 50
     
+    print(f"\n[INTEGRITY] {threads} wątków walczy o miejsce {target_seats}...")
     results = []
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=INTEGRITY_THREADS) as executor:
-        futures = [executor.submit(make_reservation, seat) for _ in range(INTEGRITY_THREADS)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(make_reservation, target_seats) for _ in range(threads)]
         for f in concurrent.futures.as_completed(futures):
             results.append(f.result())
             sys.stdout.write(".")
             sys.stdout.flush()
+    
     print("\n")
-
-    # Analiza
     counts = Counter(r.status_code for r in results)
-    success = counts[201]
-    conflicts = counts[409]
+    print(f"Wynik: Sukcesy (201): {counts[201]} | Konflikty (409): {counts[409]} | Błędy: {counts[0]}")
     
-    print(f" Wynik: {success} sukcesów, {conflicts} konfliktów.")
-    if success == 1 and conflicts == INTEGRITY_THREADS - 1:
-        print(" ✅ TEST ZALICZONY: System jest spójny.")
-    elif success == 0:
-        print(" ⚠️ OSTRZEŻENIE: Nikt nie kupił (miejsce zajęte wcześniej?).")
+    if counts[201] == 1 and counts[409] == threads - 1:
+        print("✅ TEST ZALICZONY: Idealna spójność.")
     else:
-        print(f" ❌ BŁĄD KRYTYCZNY: Sprzedano to samo miejsce {success} razy!")
+        print("⚠️  TEST NIEJEDNOZNACZNY: Sprawdź logi.")
 
-# --- FAZA 2: OBCIĄŻENIE KLASTRA ---
 def test_load():
-    print_header("FAZA 2: TEST WYDAJNOŚCI (CLUSTER LOAD)")
-    print(f"[OPIS] Próba sprzedaży {LOAD_COUNT} RÓŻNYCH miejsc w jak najkrótszym czasie.")
-    print("[CEL]  Sprawdzenie przepustowości (Requests Per Second).")
-
-    start_time = time.time()
-    results = []
+    """Scenariusz 2: Zalewanie bazy nowymi rezerwacjami (Wydajność)"""
+    count = 500
+    base_seat = random.randint(10000, 9000000)
+    # Każde żądanie to rezerwacja 1 miejsca, ale unikalnego
+    seats_list = [[s] for s in range(base_seat, base_seat + count)]
     
-    # Generujemy unikalne numery miejsc (np. 1000-1500)
-    seats = range(1000, 1000 + LOAD_COUNT)
+    print(f"\n[LOAD] Próba sprzedaży {count} biletów...")
+    start = time.time()
+    results = []
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-        futures = [executor.submit(make_reservation, s) for s in seats]
-        for i, f in enumerate(concurrent.futures.as_completed(futures)):
+        futures = [executor.submit(make_reservation, s) for s in seats_list]
+        for f in concurrent.futures.as_completed(futures):
             results.append(f.result())
-            if i % 50 == 0:
-                sys.stdout.write("#")
-                sys.stdout.flush()
     
-    total_time = time.time() - start_time
-    print("\n")
-    
-    # Analiza
+    duration = time.time() - start
     success = sum(1 for r in results if r.status_code == 201)
-    avg_latency = sum(r.duration for r in results) / len(results)
-    rps = LOAD_COUNT / total_time
+    print(f"Czas: {duration:.2f}s | RPS: {len(results)/duration:.2f} | Skuteczność: {success}/{count}")
+
+def test_batch_booking():
+    """Scenariusz 3: Rezerwacje grupowe (Atomowość Batcha)"""
+    threads = 10
+    # Każdy wątek próbuje kupić TE SAME 3 miejsca na raz [A, B, C]
+    target_seats = [random.randint(1000,9000) for _ in range(3)] 
     
-    print(f" Czas wykonania: {total_time:.2f}s")
-    print(f" Średni czas zapisu: {avg_latency*1000:.0f}ms")
-    print(f" Przepustowość: {rps:.2f} req/s")
-    print(f" Skuteczność: {success}/{LOAD_COUNT} ({(success/LOAD_COUNT)*100:.1f}%)")
-
-# --- FAZA 3: RUCH MIESZANY ---
-def test_mixed():
-    print_header("FAZA 3: RUCH MIESZANY (READ + WRITE)")
-    print(f"[OPIS] Przez {MIXED_DURATION} sekund generujemy losowy ruch (20% zapisu, 80% odczytu).")
-    print("[CEL]  Symulacja realnego obciążenia 'Flash Crowd'.")
-
-    end_time = time.time() + MIXED_DURATION
+    print(f"\n[BATCH] {threads} wątków walczy o PAKIET miejsc {target_seats}...")
     results = []
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        while time.time() < end_time:
-            # Losujemy: Czytać czy pisać?
-            action = "WRITE" if random.random() < 0.2 else "READ"
-            
-            if action == "WRITE":
-                # Losowe miejsce z dużej puli (żeby uniknąć ciągłych konfliktów)
-                seat = random.randint(2000, 10000)
-                futures = [executor.submit(make_reservation, seat)]
-            else:
-                futures = [executor.submit(read_data)]
-            
-            # Pobieramy wynik od razu, żeby nie zapchać pamięci
-            for f in futures:
-                results.append(f.result())
-            
-            time.sleep(0.05) # Mała pauza, żeby nie zabić localhosta
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(make_reservation, target_seats) for _ in range(threads)]
+        for f in concurrent.futures.as_completed(futures):
+            results.append(f.result())
 
-    # Analiza
-    writes = [r for r in results if r.phase == "WRITE"]
-    reads = [r for r in results if r.phase == "READ"]
+    counts = Counter(r.status_code for r in results)
+    print(f"Wynik: {counts[201]} wygranych pakietów. (Powinno być 1)")
+    if counts[201] > 1:
+        print("❌ BŁĄD: Sprzedano ten sam pakiet kilka razy!")
+    else:
+        print("✅ TEST BATCH OK.")
+
+def test_chaos_monkey():
+    """Scenariusz 4: Chaos Monkey (Zabijanie noda w locie)"""
+    print("\n💀 [CHAOS MODE] Uruchamiam ciągły ruch (20 req/s).")
+    print("👉 W TYM MOMENCIE możesz zabić węzeł Cassandry (np. 'docker stop ...')")
+    print("👉 Naciśnij CTRL+C aby zakończyć test.\n")
     
-    print(f"\n Wykonano łącznie: {len(results)} operacji.")
-    print(f" Zapisy (Writes): {len(writes)} | Śr. czas: {sum(r.duration for r in writes)/len(writes)*1000:.0f}ms" if writes else "Brak zapisów")
-    print(f" Odczyty (Reads): {len(reads)}   | Śr. czas: {sum(r.duration for r in reads)/len(reads)*1000:.0f}ms" if reads else "Brak odczytów")
+    time.sleep(2)
+    
+    running = True
+    def signal_handler(sig, frame):
+        nonlocal running
+        running = False
+        print("\n🛑 Zatrzymywanie...")
+
+    signal.signal(signal.SIGINT, signal_handler)
+
+    total_reqs = 0
+    errors = 0
+    successes = 0
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        while running:
+            batch_futures = []
+            # Wypuszczamy paczkę 20 zapytań
+            for _ in range(20):
+                if random.random() < 0.3: # 30% to zapisy
+                    s = random.randint(100000, 900000)
+                    batch_futures.append(executor.submit(make_reservation, [s]))
+                else: # 70% to odczyty
+                    batch_futures.append(executor.submit(read_data))
+            
+            # Czekamy na wyniki tej paczki
+            for f in concurrent.futures.as_completed(batch_futures):
+                res = f.result()
+                total_reqs += 1
+                if res.status_code in [200, 201, 409]: # 409 to też poprawna odpowiedź (konflikt logiczny)
+                    successes += 1
+                else:
+                    errors += 1 # 0 (timeout) lub 500 (błąd serwera)
+            
+            # Raportowanie co sekundę
+            sys.stdout.write(f"\r[STATUS] Req: {total_reqs} | OK: {successes} | ERR: {errors} (Ostatni błąd: {res.error if res.status_code == 0 else 'Brak'})   ")
+            sys.stdout.flush()
+            time.sleep(0.5)
+            
+    print("\n\n--- RAPORT CHAOSU ---")
+    print(f"Przetrwało zapytań: {successes}")
+    print(f"Padło (Timeout/Err): {errors}")
+    if errors > 0 and successes > 0:
+        print("Wniosek: System działał częściowo lub z przerwami (typowe dla awarii węzła).")
+
+# --- MENU GŁÓWNE ---
+
+def main():
+    while True:
+        print("\n" + "="*40)
+        print("   💣  TICKET SNATCHER - STRESS TESTER  💣")
+        print("="*40)
+        print("1. Test Integralności (Pojedyncze miejsce)")
+        print("2. Test Wydajności (Zalewanie bazy)")
+        print("3. Test Batch (Atomowość grupowa)")
+        print("4. 💀 CHAOS MODE (Zabij Noda teraz!)")
+        print("0. Wyjście")
+        
+        choice = input("\nWybierz opcję: ")
+        
+        if choice == "1":
+            test_integrity()
+        elif choice == "2":
+            test_load()
+        elif choice == "3":
+            test_batch_booking()
+        elif choice == "4":
+            test_chaos_monkey()
+        elif choice == "0":
+            print("Bye!")
+            sys.exit(0)
+        else:
+            print("Nieznana opcja.")
+        
+        input("\n[Enter] aby wrócić do menu...")
 
 if __name__ == "__main__":
-    print("\n🚀 ROZPOCZYNAMY PEŁNY STRESS TEST SYSTEMU GO-TIX")
-    try:
-        test_integrity()
-        time.sleep(1)
-        test_load()
-        time.sleep(1)
-        test_mixed()
-        print_header("KONIEC TESTU")
-    except KeyboardInterrupt:
-        print("\n\n⛔ Przerwano przez użytkownika.")
+    main()      

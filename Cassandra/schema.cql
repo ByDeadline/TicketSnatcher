@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS reservations (
     id text PRIMARY KEY,
     event_id text,
     section_id text,    
-    seat_numbers text,   
+    seat_numbers text,
+    user_id text,   
     user_name text,
     res_timestamp timestamp
 );
