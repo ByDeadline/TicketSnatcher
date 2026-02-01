@@ -23,8 +23,9 @@ func connectToCassandra() {
 	cluster.Port = 9042
 	cluster.Keyspace = "ticketsnatcher"
 	cluster.Consistency = gocql.Quorum 
-	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
-	cluster.ReconnectInterval = 5 * time.Second
+	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 10} // Zwiększone retry dla chaos testów
+	cluster.ReconnectInterval = 1 * time.Second
+	cluster.Timeout = 2 * time.Second
 
 	var err error
 	for i := 0; i < 30; i++ {
@@ -66,7 +67,6 @@ func AttemptBooking(req CreateRequest) (*Reservation, error) {
 		return nil, fmt.Errorf("batch execution failed: %v", err)
 	}
 	
-	//Symulacja laga
 	time.Sleep(200 * time.Millisecond)
 
 	for _, seatNum := range req.SeatNumbers {
@@ -75,7 +75,7 @@ func AttemptBooking(req CreateRequest) (*Reservation, error) {
 		queryVerify := `SELECT user_id, status FROM seats WHERE event_id = ? AND section_id = ? AND seat_number = ?`
 
 		if err := session.Query(queryVerify, req.EventID, req.SectionID, seatNum).Scan(&winnerID, &status); err != nil {
-			return nil, fmt.Errorf("verify read failed for seat %d", seatNum)
+			return nil, fmt.Errorf("verify read failed for seat %d (network error?)", seatNum)
 		}
 
 		if winnerID != req.UserID || status != "SOLD" {
@@ -108,6 +108,41 @@ func createReservationLog(req CreateRequest) (*Reservation, error) {
 		UserName:    req.UserName,
 		Timestamp:   now,
 	}, nil
+}
+
+func CancelReservation(reservationID string) error {
+	var eventID, sectionID, seatsStr string
+	queryGet := `SELECT event_id, section_id, seat_numbers FROM reservations WHERE id = ?`
+	
+	if err := session.Query(queryGet, reservationID).Scan(&eventID, &sectionID, &seatsStr); err != nil {
+		if err == gocql.ErrNotFound {
+			return fmt.Errorf("rezerwacja nie istnieje")
+		}
+		return err
+	}
+
+	var seatNums []int
+	for _, s := range strings.Fields(seatsStr) {
+		if n, err := strconv.Atoi(s); err == nil {
+			seatNums = append(seatNums, n)
+		}
+	}
+
+	batch := session.NewBatch(gocql.LoggedBatch)
+	
+	batch.Query(`DELETE FROM reservations WHERE id = ?`, reservationID)
+
+	for _, seatNum := range seatNums {
+		queryFree := `UPDATE seats SET status = 'AVAILABLE', user_id = null 
+		              WHERE event_id = ? AND section_id = ? AND seat_number = ?`
+		batch.Query(queryFree, eventID, sectionID, seatNum)
+	}
+
+	if err := session.ExecuteBatch(batch); err != nil {
+		return fmt.Errorf("błąd podczas anulowania: %v", err)
+	}
+
+	return nil
 }
 
 func GetReservations() ([]Reservation, error) {
