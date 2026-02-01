@@ -13,28 +13,32 @@ import (
 var session *gocql.Session
 
 func connectToCassandra() {
-	cassandraHost := os.Getenv("CASSANDRA_HOST")
-	if cassandraHost == "" {
-		cassandraHost = "127.0.0.1"
+	hostsEnv := os.Getenv("CASSANDRA_HOSTS")
+	if hostsEnv == "" {
+		hostsEnv = "127.0.0.1"
 	}
+	hosts := strings.Split(hostsEnv, ",")
 
-	cluster := gocql.NewCluster(cassandraHost)
+	cluster := gocql.NewCluster(hosts...)
 	cluster.Port = 9042
 	cluster.Keyspace = "ticketsnatcher"
-	cluster.Consistency = gocql.Quorum
+	cluster.Consistency = gocql.Quorum 
+	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
+	cluster.ReconnectInterval = 5 * time.Second
 
 	var err error
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 30; i++ {
 		session, err = cluster.CreateSession()
 		if err == nil {
-			fmt.Println("Connected to Cassandra at", cassandraHost)
+			fmt.Println("✅ Połączono z klastrem Cassandra:", hosts)
 			return
 		}
-		fmt.Println("Waiting for Cassandra...", err)
+		fmt.Printf("⏳ Oczekiwanie na klaster (%d/30)... Błąd: %v\n", i+1, err)
 		time.Sleep(2 * time.Second)
 	}
-	log.Fatal("Failed to connect to Cassandra:", err)
+	log.Fatal("❌ Nie udało się połączyć z Cassandrą:", err)
 }
+
 
 func AttemptBooking(req CreateRequest) (*Reservation, error) {
 	if len(req.SeatNumbers) == 0 {
