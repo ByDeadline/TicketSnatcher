@@ -48,6 +48,8 @@ func main() {
 			handleStressTest(reader)
 		case "5":
 			handleChaosTest(reader)
+		case "6":
+			handleBatchTest()
 		case "0":
 			fmt.Println("Do widzenia!")
 			os.Exit(0)
@@ -82,9 +84,9 @@ func handleInteractiveBooking(r *bufio.Reader) {
 	duration := time.Since(start)
 
 	if err != nil {
-		fmt.Printf("❌ BŁĄD: %v (Czas: %v)\n", err, duration)
+		fmt.Printf("BŁĄD: %v (Czas: %v)\n", err, duration)
 	} else {
-		fmt.Printf("✅ SUKCES! ID Rezerwacji: %s (Czas: %v)\n", res.ID, duration)
+		fmt.Printf("SUKCES! ID Rezerwacji: %s (Czas: %v)\n", res.ID, duration)
 	}
 }
 
@@ -191,6 +193,17 @@ func handleStressTest(r *bufio.Reader) {
 	} else {
 		fmt.Println("TEST NIEJEDNOZNACZNY (możliwe błędy sieci lub bazy)")
 	}
+}
+
+
+func handleBatchTest() {
+	err := TestMultiSectorBatch()
+	if err != nil {
+		fmt.Println("Błąd testu:", err)
+		return
+		}
+	time.Sleep(500 * time.Millisecond) 
+	CheckBatchResults()
 }
 
 func handleChaosTest(r *bufio.Reader) {
