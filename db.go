@@ -148,25 +148,19 @@ func CancelReservation(reservationID string) error {
 func TestMultiSectorBatch() error {
 	fmt.Println("--- ROZPOCZYNAM TEST LOGGED BATCH (Cross-Partition) ---")
 	
-	// 1. Upewnij się, że miejsca są wolne (Reset)
 	session.Query("UPDATE seats SET status='AVAILABLE', user_id=null WHERE event_id='1' AND section_id='A' AND seat_number=900").Exec()
 	session.Query("UPDATE seats SET status='AVAILABLE', user_id=null WHERE event_id='1' AND section_id='B' AND seat_number=900").Exec()
-
-	// 2. Przygotuj BATCH
-	// Zauważ: Modyfikujemy dwie RÓŻNE partycje (Section A i Section B)
+	
 	batch := session.NewBatch(gocql.LoggedBatch)
 	
 	userID := "batch_tester_01"
 	
-	// Zapytanie 1: Sekcja A
 	batch.Query(`UPDATE seats SET status='SOLD', user_id=? 
 		WHERE event_id='1' AND section_id='A' AND seat_number=900`, userID)
-		
-	// Zapytanie 2: Sekcja B
+
 	batch.Query(`UPDATE seats SET status='SOLD', user_id=? 
 		WHERE event_id='1' AND section_id='B' AND seat_number=900`, userID)
 
-	// Dodaj wpis do rezerwacji (żeby zachować spójność logiczną)
 	resID := gocql.TimeUUID().String()
 	batch.Query(`INSERT INTO reservations (id, event_id, section_id, seat_numbers, user_id, user_name, res_timestamp) 
 		VALUES (?, ?, ?, ?, ?, ?, toTimestamp(now()))`, 
@@ -174,12 +168,11 @@ func TestMultiSectorBatch() error {
 
 	fmt.Println("Wysyłanie BATCHA do klastra...")
 	
-	// 3. Wykonanie
 	if err := session.ExecuteBatch(batch); err != nil {
 		return fmt.Errorf("BATCH Failed: %v", err)
 	}
 	
-	fmt.Println("✅ BATCH wykonany pomyślnie.")
+	fmt.Println("BATCH wykonany pomyślnie.")
 	return nil
 }
 
