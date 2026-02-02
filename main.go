@@ -24,13 +24,13 @@ func main() {
 
 	for {
 		fmt.Println("\n" + strings.Repeat("=", 40))
-		fmt.Println("   🎟️  TICKET SNATCHER (Cluster Edition) 🎟️")
+		fmt.Println("TICKET SNATCHER")
 		fmt.Println(strings.Repeat("=", 40))
 		fmt.Println("1. Kup bilet (Interaktywnie)")
 		fmt.Println("2. Pokaż wszystkie rezerwacje")
 		fmt.Println("3. Anuluj rezerwację")
-		fmt.Println("4. 💣 Uruchom STRESS TEST (Race Conditions)")
-		fmt.Println("5. ☠️  Uruchom CHAOS TEST (Test awarii sieci/węzła)")
+		fmt.Println("4. Uruchom STRESS TEST (Race Conditions)")
+		fmt.Println("5. Uruchom CHAOS TEST (Test awarii sieci/węzła)")
 		fmt.Println("0. Wyjście")
 		fmt.Print("\nWybierz opcję: ")
 
@@ -121,9 +121,9 @@ func handleCancellation(r *bufio.Reader) {
 	duration := time.Since(start)
 
 	if err != nil {
-		fmt.Printf("❌ Błąd anulowania: %v\n", err)
+		fmt.Printf("Błąd anulowania: %v\n", err)
 	} else {
-		fmt.Printf("✅ Rezerwacja anulowana pomyślnie (Czas: %v)\n", duration)
+		fmt.Printf("Rezerwacja anulowana pomyślnie (Czas: %v)\n", duration)
 	}
 }
 
@@ -209,7 +209,6 @@ func handleBatchTest() {
 func handleChaosTest(r *bufio.Reader) {
 	fmt.Println("\n☠️  CHAOS TEST MODE ☠️")
 	fmt.Println("Ten test działa w nieskończonej pętli. Próbuje rezerwować losowe miejsca.")
-	fmt.Println("W TYM MOMENCIE możesz wyłączyć węzeł (np. 'docker stop cassandra-2') aby przetestować failover.")
 	fmt.Println("Naciśnij CTRL+C aby przerwać.\n")
 	
 	fmt.Print("Ilu użytkowników symulować? (np. 5): ")
@@ -228,7 +227,7 @@ func handleChaosTest(r *bufio.Reader) {
 		for {
 			time.Sleep(1 * time.Second)
 			stats.Lock()
-			fmt.Printf("\r[STATUS] Sukcesy: %d | Konflikty/Zajęte: %d | ❌ BŁĘDY POŁĄCZENIA: %d", stats.Success, stats.Fail, stats.Error)
+			fmt.Printf("\r[STATUS] Sukcesy: %d | Konflikty/Zajęte: %d | BŁĘDY POŁĄCZENIA: %d", stats.Success, stats.Fail, stats.Error)
 			stats.Unlock()
 		}
 	}()

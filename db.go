@@ -31,13 +31,13 @@ func connectToCassandra() {
 	for i := 0; i < 30; i++ {
 		session, err = cluster.CreateSession()
 		if err == nil {
-			fmt.Println("✅ Połączono z klastrem Cassandra:", hosts)
+			fmt.Println("Połączono z klastrem Cassandra:", hosts)
 			return
 		}
-		fmt.Printf("⏳ Oczekiwanie na klaster (%d/30)... Błąd: %v\n", i+1, err)
+		fmt.Printf("Oczekiwanie na klaster (%d/30)... Błąd: %v\n", i+1, err)
 		time.Sleep(2 * time.Second)
 	}
-	log.Fatal("❌ Nie udało się połączyć z Cassandrą:", err)
+	log.Fatal("Nie udało się połączyć z Cassandrą:", err)
 }
 
 
